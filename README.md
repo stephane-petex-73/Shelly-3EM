@@ -1,6 +1,6 @@
 # Shelly 3EM Reader
 
-Ce projet permet d'interroger un Shelly 3EM Gen1 sur le réseau local et d'afficher les valeurs des entrées A et B.
+Ce projet permet d'interroger un Shelly 3EM Gen1 sur le réseau local et d'afficher les valeurs des entrées A et B. LA version 3 afficher également l'entre C
 
 ## Prérequis
 
@@ -59,4 +59,4 @@ Le script affiche les informations de puissance, tension, courant, total et vali
 - "Il y a une erreur dans le rafraîchissement des données. Elle ne fonctionne qu'une fois après avoir cliqué sur OK. Il faut que le process soit continu"
 - "Peux-tu copier tous les prompts que j'ai écrit dans le fichier README"
 
-Cette section reprend l'historique des demandes formulées pendant le développement de ce projet pour garder une trace des évolutions demandées et validées.
+Cette section reprend l'historique des demandes formulées pendant le développement de ce projet pour les version V1 et V2, pour garder une trace des évolutions demandées et validées.
