@@ -60,3 +60,36 @@ Le script affiche les informations de puissance, tension, courant, total et vali
 - "Peux-tu copier tous les prompts que j'ai écrit dans le fichier README"
 
 Cette section reprend l'historique des demandes formulées pendant le développement de ce projet pour les version V1 et V2, pour garder une trace des évolutions demandées et validées.
+
+## Lecture des données via l'API du Shelly
+Le programme appelle fetch_status() pour aller lire les données du Shelly à chaque rafraîchissement.
+Avec cette commande : http://192.168.11.100:80/status le script renvoie le JSON complet du Shelly, avec notamment la liste des compteurs : entrée A; entrée B; entrée C.
+Ensuite, le programme récupère les compteurs avec la fonction get_meter_list
+Voici un exemple typique de ce que renvoie l’API du Shelly :
+{
+  "wifi_sta": {
+    "connected": true,
+    "ssid": "MonRéseau",
+    "ip": "192.168.11.100"
+  },
+  "meters": [
+    {
+      "power": 1234.5,
+      "current": 5.42,
+      "voltage": 230.1,
+      "total": 45678.9
+    },
+    {
+      "power": -456.7,
+      "current": -1.98,
+      "voltage": 230.3,
+      "total": 12345.6
+    },
+    {
+      "power": 789.1,
+      "current": 3.42,
+      "voltage": 229.9,
+      "total": 9876.5
+    }
+     ]
+}
