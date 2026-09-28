@@ -265,6 +265,8 @@ class Shelly3EMWindowV3:
             if key == "A":
                 segment_points: list[tuple[float, float]] = []
                 segment_negative = None
+                label_added = False
+
                 for minute, value in zip(minute_values, y_values):
                     current_negative = value < 0
                     if not segment_points:
@@ -276,11 +278,12 @@ class Shelly3EMWindowV3:
                         self.graph_ax.plot(
                             [point[0] for point in segment_points],
                             [point[1] for point in segment_points],
-                            label=labels[key] if not segment_points[:-1] else None,
+                            label=labels[key] if not label_added else None,
                             color=color,
                             linewidth=2,
                             linestyle="--" if segment_negative else "-",
                         )
+                        label_added = True
                         segment_points = [(minute, value)]
                         segment_negative = current_negative
                     else:
@@ -290,7 +293,7 @@ class Shelly3EMWindowV3:
                     self.graph_ax.plot(
                         [point[0] for point in segment_points],
                         [point[1] for point in segment_points],
-                        label=labels[key] if not segment_points[:-1] else None,
+                        label=labels[key] if not label_added else None,
                         color=color,
                         linewidth=2,
                         linestyle="--" if segment_negative else "-",
