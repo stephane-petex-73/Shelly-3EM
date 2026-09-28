@@ -176,7 +176,7 @@ class ShellyAndroidApp(App):
             power_c = float(meter_c.get("power", 0) or 0)
             self.update_energy_mode(power_a)
 
-            total_consumption = power_a + power_b + power_c
+            total_consumption = power_a + power_b
             self.consumption_box.value_label.text = f"{total_consumption:.1f} W"
         except requests.RequestException as exc:
             self.status_label.text = f"Erreur réseau : {exc}"

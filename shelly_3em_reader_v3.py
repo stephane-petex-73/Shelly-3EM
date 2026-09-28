@@ -3,12 +3,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import requests
 import tkinter as tk
 from tkinter import ttk
+
+try:
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.figure import Figure
+except ImportError:  # pragma: no cover - matplotlib may be absent until installation.
+    FigureCanvasTkAgg = None
+    Figure = None
 
 DEFAULT_IP = "192.168.11.100"
 DEFAULT_PORT = 80
@@ -34,6 +41,15 @@ def get_meter_list(status: dict[str, Any]) -> list[dict[str, Any]]:
     raise KeyError("Le Shelly ne renvoie pas de données de compteurs (meters/emeters).")
 
 
+def append_power_history(history: dict[str, list[float]], values: dict[str, float], limit: int = 120) -> dict[str, list[float]]:
+    for name, value in values.items():
+        series = history.setdefault(name, [])
+        series.append(float(value))
+        if len(series) > limit:
+            series.pop(0)
+    return history
+
+
 class Shelly3EMWindowV3:
     def __init__(self, root: tk.Tk, ip: str = DEFAULT_IP, port: int = DEFAULT_PORT, timeout: int = TIMEOUT_SECONDS):
         self.root = root
@@ -56,6 +72,10 @@ class Shelly3EMWindowV3:
         self.refresh_seconds_var = tk.StringVar(value="5")
         self.ip_var = tk.StringVar(value=ip)
         self.refresh_job = None
+        self.history: dict[str, list[float]] = {"A": [], "B": [], "C": [], "Maison": []}
+        self.history_times: dict[str, list[datetime]] = {"A": [], "B": [], "C": [], "Maison": []}
+        self.max_history_points = 5760
+        self.launch_time = datetime.now()
 
         self.value_vars: dict[str, dict[str, tk.StringVar]] = {
             "A": {
@@ -78,7 +98,13 @@ class Shelly3EMWindowV3:
             },
         }
 
-        main_container = tk.Frame(self.root, bg="#eaf2f8", padx=20, pady=20)
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True)
+
+        self.main_tab = tk.Frame(self.notebook, bg="#eaf2f8")
+        self.notebook.add(self.main_tab, text="Mesures")
+
+        main_container = tk.Frame(self.main_tab, bg="#eaf2f8", padx=20, pady=20)
         main_container.pack(fill="both", expand=True)
         main_container.grid_columnconfigure(0, weight=1)
 
@@ -132,6 +158,24 @@ class Shelly3EMWindowV3:
                 value_label = tk.Label(frame, textvariable=self.value_vars[label][key], fg="#1f1f1f", bg="#ffffff", font=("Arial", 8))
                 value_label.grid(row=row_index + 1, column=1, sticky="w", pady=0)
 
+        self.graph_tab = tk.Frame(self.notebook, bg="#eaf2f8")
+        self.notebook.add(self.graph_tab, text="Graphique")
+        if Figure is not None and FigureCanvasTkAgg is not None:
+            self.graph_figure = Figure(figsize=(8, 4.5), dpi=100, facecolor="#f4f7fb")
+            self.graph_ax = self.graph_figure.add_subplot(111)
+            self.graph_canvas = FigureCanvasTkAgg(self.graph_figure, self.graph_tab)
+            self.graph_canvas.get_tk_widget().pack(fill="both", expand=True, padx=12, pady=(12, 12))
+            self.update_graph()
+        else:
+            tk.Label(
+                self.graph_tab,
+                text="Matplotlib n’est pas installé.\nInstallez le paquet matplotlib pour afficher le graphe.",
+                bg="#eaf2f8",
+                fg="#333333",
+                justify="left",
+                font=("Arial", 10),
+            ).pack(anchor="center", expand=True, padx=20, pady=20)
+
         bottom_bar = tk.Frame(self.root, bg="#dfeaf4")
         bottom_bar.pack(side="bottom", fill="x")
 
@@ -176,6 +220,119 @@ class Shelly3EMWindowV3:
         else:
             self.mode_var.set("Mode : Équilibre")
             self.mode_color.set("#666666")
+
+    def update_graph(self) -> None:
+        if Figure is None or FigureCanvasTkAgg is None or not hasattr(self, "graph_ax"):
+            return
+
+        now = datetime.now()
+        start_time = self.launch_time
+
+        self.graph_ax.clear()
+        self.graph_ax.set_title("Historique depuis le lancement")
+        self.graph_ax.set_xlabel("Temps depuis le lancement")
+        self.graph_ax.set_ylabel("Puissance (W)")
+        self.graph_ax.grid(True, alpha=0.3)
+
+        colors = {
+            "A": "#0b19db",
+            "B": "#df6616",
+            "C": "#2ce714",
+            "Maison": "#d81d1d",
+        }
+        labels = {
+            "A": "Enedis",
+            "B": "Production solaire",
+            "C": "Cumulus",
+            "Maison": "TOTAL conso Maison",
+        }
+        plotted = False
+        all_minutes: list[float] = []
+
+        for key, color in colors.items():
+            timestamps = self.history_times.get(key, [])
+            values = self.history.get(key, [])
+            if not timestamps or not values:
+                continue
+            filtered = [(ts, value) for ts, value in zip(timestamps, values) if ts >= start_time]
+            if not filtered:
+                continue
+            filtered.sort(key=lambda item: item[0])
+            minute_values = [(ts - start_time).total_seconds() / 60.0 for ts, _ in filtered]
+            y_values = [value for _, value in filtered]
+            all_minutes.extend(minute_values)
+
+            if key == "A":
+                segment_points: list[tuple[float, float]] = []
+                segment_negative = None
+                for minute, value in zip(minute_values, y_values):
+                    current_negative = value < 0
+                    if not segment_points:
+                        segment_negative = current_negative
+                        segment_points.append((minute, value))
+                        continue
+
+                    if current_negative != segment_negative:
+                        self.graph_ax.plot(
+                            [point[0] for point in segment_points],
+                            [point[1] for point in segment_points],
+                            label=labels[key] if not segment_points[:-1] else None,
+                            color=color,
+                            linewidth=2,
+                            linestyle="--" if segment_negative else "-",
+                        )
+                        segment_points = [(minute, value)]
+                        segment_negative = current_negative
+                    else:
+                        segment_points.append((minute, value))
+
+                if segment_points:
+                    self.graph_ax.plot(
+                        [point[0] for point in segment_points],
+                        [point[1] for point in segment_points],
+                        label=labels[key] if not segment_points[:-1] else None,
+                        color=color,
+                        linewidth=2,
+                        linestyle="--" if segment_negative else "-",
+                    )
+            else:
+                self.graph_ax.plot(minute_values, y_values, label=labels[key], color=color, linewidth=2)
+            plotted = True
+
+        if all_minutes:
+            min_value = 0.0
+            max_value = max(all_minutes)
+            if max_value == 0:
+                max_value = 60
+            self.graph_ax.set_xlim(min_value, max_value)
+            tick_minutes = list(range(0, int(max_value) + 1, 60))
+            if tick_minutes:
+                tick_labels = [(start_time + timedelta(minutes=offset)).strftime("%H:%M") for offset in tick_minutes]
+                self.graph_ax.set_xticks(tick_minutes)
+                self.graph_ax.set_xticklabels(tick_labels, rotation=30)
+            self.graph_ax.axhline(0, color="#302E2E", linewidth=1.0, alpha=1.0, linestyle="-")
+
+        if plotted:
+            self.graph_ax.legend(loc="upper right")
+        self.graph_figure.tight_layout()
+        self.graph_canvas.draw_idle()
+
+    def append_history(self, power_a: float, power_b: float, power_c: float) -> None:
+        now = datetime.now()
+        values = {
+            "A": power_a,
+            "B": power_b,
+            "C": power_c,
+            "Maison": power_a + power_b,
+        }
+        for key, value in values.items():
+            series = self.history.setdefault(key, [])
+            series.append(float(value))
+            self.history_times.setdefault(key, []).append(now)
+            if len(series) > self.max_history_points:
+                series.pop(0)
+                self.history_times[key].pop(0)
+        self.update_graph()
 
     def set_ip_and_refresh(self) -> None:
         new_ip = self.ip_var.get().strip()
@@ -251,8 +408,9 @@ class Shelly3EMWindowV3:
 
             self.update_energy_mode(power_a)
 
-            home_consumption_w = power_a + power_b + power_c
+            home_consumption_w = power_a + power_b
             self.house_consumption_var.set(f"{home_consumption_w:.1f} W")
+            self.append_history(power_a, power_b, power_c)
 
             self.status_var.set(f"Dernière mise à jour : {datetime.now().strftime('%H:%M:%S')}")
         except requests.exceptions.Timeout:
